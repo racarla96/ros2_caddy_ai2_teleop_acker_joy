@@ -29,32 +29,32 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSI
 #include <set>
 #include <string>
 
-#include <geometry_msgs/msg/twist.hpp>
+#include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <rcutils/logging_macros.h>
 #include <sensor_msgs/msg/joy.hpp>
 
-#include "teleop_twist_joy/teleop_twist_joy.hpp"
+#include "teleop_acker_joy/teleop_acker_joy.hpp"
 
 #define ROS_INFO_NAMED RCUTILS_LOG_INFO_NAMED
 #define ROS_INFO_COND_NAMED RCUTILS_LOG_INFO_EXPRESSION_NAMED
 
-namespace teleop_twist_joy
+namespace teleop_acker_joy
 {
 
 /**
  * Internal members of class. This is the pimpl idiom, and allows more flexibility in adding
- * parameters later without breaking ABI compatibility, for robots which link TeleopTwistJoy
+ * parameters later without breaking ABI compatibility, for robots which link TeleopAckerJoy
  * directly into base nodes.
  */
-struct TeleopTwistJoy::Impl
+struct TeleopAckerJoy::Impl
 {
   void joyCallback(const sensor_msgs::msg::Joy::SharedPtr joy);
   void sendCmdVelMsg(const sensor_msgs::msg::Joy::SharedPtr, const std::string& which_map);
 
   rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub;
-  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub;
+  rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr cmd_vel_pub;
 
   bool require_enable_button;
   int64_t enable_button;
@@ -70,15 +70,17 @@ struct TeleopTwistJoy::Impl
 };
 
 /**
- * Constructs TeleopTwistJoy.
+ * Constructs TeleopAckerJoy.
  */
-TeleopTwistJoy::TeleopTwistJoy(const rclcpp::NodeOptions& options) : Node("teleop_twist_joy_node", options)
+TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleop_acker_joy_node", options)
 {
   pimpl_ = new Impl;
 
-  pimpl_->cmd_vel_pub = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 10);
+  pimpl_->cmd_vel_pub =
+    this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
+      "cmd_vel", rclcpp::SensorDataQoS());
   pimpl_->joy_sub = this->create_subscription<sensor_msgs::msg::Joy>("joy", rclcpp::QoS(10),
-    std::bind(&TeleopTwistJoy::Impl::joyCallback, this->pimpl_, std::placeholders::_1));
+    std::bind(&TeleopAckerJoy::Impl::joyCallback, this->pimpl_, std::placeholders::_1));
 
   pimpl_->require_enable_button = this->declare_parameter("require_enable_button", true);
 
@@ -134,26 +136,26 @@ TeleopTwistJoy::TeleopTwistJoy(const rclcpp::NodeOptions& options) : Node("teleo
   this->declare_parameters("scale_angular_turbo", default_scale_angular_turbo_map);
   this->get_parameters("scale_angular_turbo", pimpl_->scale_angular_map["turbo"]);
 
-  ROS_INFO_COND_NAMED(pimpl_->require_enable_button, "TeleopTwistJoy",
+  ROS_INFO_COND_NAMED(pimpl_->require_enable_button, "TeleopAckerJoy",
       "Teleop enable button %" PRId64 ".", pimpl_->enable_button);
-  ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0, "TeleopTwistJoy",
+  ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0, "TeleopAckerJoy",
     "Turbo on button %" PRId64 ".", pimpl_->enable_turbo_button);
 
   for (std::map<std::string, int64_t>::iterator it = pimpl_->axis_linear_map.begin();
        it != pimpl_->axis_linear_map.end(); ++it)
   {
-    ROS_INFO_COND_NAMED(it->second != -1L, "TeleopTwistJoy", "Linear axis %s on %" PRId64 " at scale %f.",
+    ROS_INFO_COND_NAMED(it->second != -1L, "TeleopAckerJoy", "Linear axis %s on %" PRId64 " at scale %f.",
       it->first.c_str(), it->second, pimpl_->scale_linear_map["normal"][it->first]);
-    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && it->second != -1, "TeleopTwistJoy",
+    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && it->second != -1, "TeleopAckerJoy",
       "Turbo for linear axis %s is scale %f.", it->first.c_str(), pimpl_->scale_linear_map["turbo"][it->first]);
   }
 
   for (std::map<std::string, int64_t>::iterator it = pimpl_->axis_angular_map.begin();
        it != pimpl_->axis_angular_map.end(); ++it)
   {
-    ROS_INFO_COND_NAMED(it->second != -1L, "TeleopTwistJoy", "Angular axis %s on %" PRId64 " at scale %f.",
+    ROS_INFO_COND_NAMED(it->second != -1L, "TeleopAckerJoy", "Angular axis %s on %" PRId64 " at scale %f.",
       it->first.c_str(), it->second, pimpl_->scale_angular_map["normal"][it->first]);
-    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && it->second != -1, "TeleopTwistJoy",
+    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && it->second != -1, "TeleopAckerJoy",
       "Turbo for angular axis %s is scale %f.", it->first.c_str(), pimpl_->scale_angular_map["turbo"][it->first]);
   }
 
@@ -302,7 +304,7 @@ TeleopTwistJoy::TeleopTwistJoy(const rclcpp::NodeOptions& options) : Node("teleo
   callback_handle = this->add_on_set_parameters_callback(param_callback);
 }
 
-TeleopTwistJoy::~TeleopTwistJoy()
+TeleopAckerJoy::~TeleopAckerJoy()
 {
   delete pimpl_;
 }
@@ -321,24 +323,24 @@ double getVal(const sensor_msgs::msg::Joy::SharedPtr joy_msg, const std::map<std
   return joy_msg->axes[axis_map.at(fieldname)] * scale_map.at(fieldname);
 }
 
-void TeleopTwistJoy::Impl::sendCmdVelMsg(const sensor_msgs::msg::Joy::SharedPtr joy_msg,
+void TeleopAckerJoy::Impl::sendCmdVelMsg(const sensor_msgs::msg::Joy::SharedPtr joy_msg,
                                          const std::string& which_map)
 {
   // Initializes with zeros by default.
-  auto cmd_vel_msg = std::make_unique<geometry_msgs::msg::Twist>();
+  auto cmd_vel_msg = std::make_unique<ackermann_msgs::msg::AckermannDriveStamped>();
 
-  cmd_vel_msg->linear.x = getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "x");
-  cmd_vel_msg->linear.y = getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "y");
-  cmd_vel_msg->linear.z = getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "z");
-  cmd_vel_msg->angular.z = getVal(joy_msg, axis_angular_map, scale_angular_map[which_map], "yaw");
-  cmd_vel_msg->angular.y = getVal(joy_msg, axis_angular_map, scale_angular_map[which_map], "pitch");
-  cmd_vel_msg->angular.x = getVal(joy_msg, axis_angular_map, scale_angular_map[which_map], "roll");
+  cmd_vel_msg->drive.speed =
+    getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "x");
+  cmd_vel_msg->drive.steering_angle =
+    getVal(joy_msg, axis_angular_map, scale_angular_map[which_map], "yaw");
+  cmd_vel_msg->drive.steering_angle_velocity =
+    getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "z");
 
   cmd_vel_pub->publish(std::move(cmd_vel_msg));
   sent_disable_msg = false;
 }
 
-void TeleopTwistJoy::Impl::joyCallback(const sensor_msgs::msg::Joy::SharedPtr joy_msg)
+void TeleopAckerJoy::Impl::joyCallback(const sensor_msgs::msg::Joy::SharedPtr joy_msg)
 {
   if (enable_turbo_button >= 0 &&
       static_cast<int>(joy_msg->buttons.size()) > enable_turbo_button &&
@@ -359,13 +361,13 @@ void TeleopTwistJoy::Impl::joyCallback(const sensor_msgs::msg::Joy::SharedPtr jo
     if (!sent_disable_msg)
     {
       // Initializes with zeros by default.
-      auto cmd_vel_msg = std::make_unique<geometry_msgs::msg::Twist>();
+      auto cmd_vel_msg = std::make_unique<ackermann_msgs::msg::AckermannDriveStamped>();
       cmd_vel_pub->publish(std::move(cmd_vel_msg));
       sent_disable_msg = true;
     }
   }
 }
 
-}  // namespace teleop_twist_joy
+}  // namespace teleop_acker_joy
 
-RCLCPP_COMPONENTS_REGISTER_NODE(teleop_twist_joy::TeleopTwistJoy)
+RCLCPP_COMPONENTS_REGISTER_NODE(teleop_acker_joy::TeleopAckerJoy)

@@ -1,21 +1,21 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>teleop_twist_joy</name>
-  <version>2.4.3</version>
-  <description>Generic joystick teleop for twist robots.</description>
-  <maintainer email="clalancette@openrobotics.org">Chris Lalancette</maintainer>
+  <name>teleop_acker_joy</name>
+  <version>1.0.0</version>
+  <description>Generic joystick teleop for ackermann robots.</description>
+  <maintainer email="accounts@pascalpieper.de">Dont-ask-Pascal</maintainer>
 
   <license>BSD</license>
 
-  <url type="website">http://wiki.ros.org/teleop_twist_joy</url>
-  <author email="mpurvis@clearpathrobotics.com">Mike Purvis</author>
+  <url type="website">https://github.com/pilsbot/teleop_acker_joy</url>
+  <author email="accounts@pascalpieper.de">Pascal Pieper</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>geometry_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
   <depend>sensor_msgs</depend>
+  <depend>ackermann_msgs</depend>
 
   <exec_depend>joy</exec_depend>
 
