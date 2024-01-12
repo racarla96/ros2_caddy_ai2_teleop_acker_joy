@@ -76,8 +76,11 @@ TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleo
 
   pimpl_->cmd_vel_pub =
     this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
-      "cmd_vel", rclcpp::SensorDataQoS());
-  pimpl_->joy_sub = this->create_subscription<sensor_msgs::msg::Joy>("joy", rclcpp::QoS(10),
+      "cmd_vel",
+      rclcpp::QoS(rclcpp::KeepLast(1)));
+  pimpl_->joy_sub = this->create_subscription<sensor_msgs::msg::Joy>(
+    "joy",
+    rclcpp::QoS(rclcpp::KeepLast(1)),
     std::bind(&TeleopAckerJoy::Impl::joyCallback, this->pimpl_, std::placeholders::_1));
 
   pimpl_->require_enable_button = this->declare_parameter("require_enable_button", true);
