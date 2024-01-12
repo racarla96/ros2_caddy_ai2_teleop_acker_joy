@@ -60,11 +60,9 @@ struct TeleopAckerJoy::Impl
   int64_t enable_button;
   int64_t enable_turbo_button;
 
-  std::map<std::string, int64_t> axis_linear_map;
-  std::map<std::string, std::map<std::string, double>> scale_linear_map;
-
-  std::map<std::string, int64_t> axis_angular_map;
-  std::map<std::string, std::map<std::string, double>> scale_angular_map;
+  std::map<std::string, int64_t> axis_map;
+  std::map<std::string, std::map<std::string, double>> scale_map;
+  std::map<std::string, double> offset_map;
 
   bool sent_disable_msg;
 };
@@ -88,90 +86,81 @@ TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleo
 
   pimpl_->enable_turbo_button = this->declare_parameter("enable_turbo_button", -1);
 
-  std::map<std::string, int64_t> default_linear_map{
-    {"x", 5L},
-    {"y", -1L},
-    {"z", -1L},
+  std::map<std::string, int64_t> default_map{
+    {"linear", 5L},
+    {"steering_angle", 6L},
+    {"steering_angle_fine", -1L},
+    {"steering_angle_velocity", -1L}
   };
-  this->declare_parameters("axis_linear", default_linear_map);
-  this->get_parameters("axis_linear", pimpl_->axis_linear_map);
+  this->declare_parameters("axis", default_map);
+  this->get_parameters("axis", pimpl_->axis_map);
 
-  std::map<std::string, int64_t> default_angular_map{
-    {"yaw", 2L},
-    {"pitch", -1L},
-    {"roll", -1L},
+  std::map<std::string, double> default_scale_normal_map{
+    {"linear", 0.5},
+    {"steering_angle", 1.4},
+    {"steering_angle_fine", 0.0},
+    {"steering_angle_velocity", 0.0}
   };
-  this->declare_parameters("axis_angular", default_angular_map);
-  this->get_parameters("axis_angular", pimpl_->axis_angular_map);
+  this->declare_parameters("scale", default_scale_normal_map);
+  this->get_parameters("scale", pimpl_->scale_map["normal"]);
 
-  std::map<std::string, double> default_scale_linear_normal_map{
-    {"x", 0.5},
-    {"y", 0.0},
-    {"z", 0.0},
+  std::map<std::string, double> default_scale_turbo_map{
+    {"linear", 1.0},
+    {"steering_angle", 0.8},
+    {"steering_angle_fine", 0.0},
+    {"steering_angle_velocity", 0.0}
   };
-  this->declare_parameters("scale_linear", default_scale_linear_normal_map);
-  this->get_parameters("scale_linear", pimpl_->scale_linear_map["normal"]);
+  this->declare_parameters("scale_turbo", default_scale_turbo_map);
+  this->get_parameters("scale_turbo", pimpl_->scale_map["turbo"]);
 
-  std::map<std::string, double> default_scale_linear_turbo_map{
-    {"x", 1.0},
-    {"y", 0.0},
-    {"z", 0.0},
+  std::map<std::string, double> default_offset_map {
+    {"linear", 0.0},
+    {"steering_angle", 0.0},
+    {"steering_angle_fine", 0.0},
+    {"steering_angle_velocity", 0.4}
   };
-  this->declare_parameters("scale_linear_turbo", default_scale_linear_turbo_map);
-  this->get_parameters("scale_linear_turbo", pimpl_->scale_linear_map["turbo"]);
-
-  std::map<std::string, double> default_scale_angular_normal_map{
-    {"yaw", 0.5},
-    {"pitch", 0.0},
-    {"roll", 0.0},
-  };
-  this->declare_parameters("scale_angular", default_scale_angular_normal_map);
-  this->get_parameters("scale_angular", pimpl_->scale_angular_map["normal"]);
-
-  std::map<std::string, double> default_scale_angular_turbo_map{
-    {"yaw", 1.0},
-    {"pitch", 0.0},
-    {"roll", 0.0},
-  };
-  this->declare_parameters("scale_angular_turbo", default_scale_angular_turbo_map);
-  this->get_parameters("scale_angular_turbo", pimpl_->scale_angular_map["turbo"]);
+  this->declare_parameters("offset", default_offset_map);
+  this->get_parameters("offset", pimpl_->offset_map);
 
   ROS_INFO_COND_NAMED(pimpl_->require_enable_button, "TeleopAckerJoy",
       "Teleop enable button %" PRId64 ".", pimpl_->enable_button);
   ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0, "TeleopAckerJoy",
     "Turbo on button %" PRId64 ".", pimpl_->enable_turbo_button);
 
-  for (std::map<std::string, int64_t>::iterator it = pimpl_->axis_linear_map.begin();
-       it != pimpl_->axis_linear_map.end(); ++it)
+  for (const auto& [name, value] : pimpl_->axis_map)
   {
-    ROS_INFO_COND_NAMED(it->second != -1L, "TeleopAckerJoy", "Linear axis %s on %" PRId64 " at scale %f.",
-      it->first.c_str(), it->second, pimpl_->scale_linear_map["normal"][it->first]);
-    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && it->second != -1, "TeleopAckerJoy",
-      "Turbo for linear axis %s is scale %f.", it->first.c_str(), pimpl_->scale_linear_map["turbo"][it->first]);
-  }
-
-  for (std::map<std::string, int64_t>::iterator it = pimpl_->axis_angular_map.begin();
-       it != pimpl_->axis_angular_map.end(); ++it)
-  {
-    ROS_INFO_COND_NAMED(it->second != -1L, "TeleopAckerJoy", "Angular axis %s on %" PRId64 " at scale %f.",
-      it->first.c_str(), it->second, pimpl_->scale_angular_map["normal"][it->first]);
-    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && it->second != -1, "TeleopAckerJoy",
-      "Turbo for angular axis %s is scale %f.", it->first.c_str(), pimpl_->scale_angular_map["turbo"][it->first]);
+    ROS_INFO_COND_NAMED(value != -1L, "TeleopAckerJoy",
+      "axis '%s' on %" PRId64 " at scale %f with offs + %f.",
+      name.c_str(), value, pimpl_->scale_map["normal"][name], pimpl_->offset_map[name]);
+    ROS_INFO_COND_NAMED(pimpl_->enable_turbo_button >= 0 && value != -1, "TeleopAckerJoy",
+      "Turbo for axis '%s' is scale %f.",
+      name.c_str(), pimpl_->scale_map["turbo"][name]);
   }
 
   pimpl_->sent_disable_msg = false;
 
+  // callback if re-setting during runtime
   auto param_callback =
   [this](std::vector<rclcpp::Parameter> parameters)
   {
-    static std::set<std::string> intparams = {"axis_linear.x", "axis_linear.y", "axis_linear.z",
-                                              "axis_angular.yaw", "axis_angular.pitch", "axis_angular.roll",
-                                              "enable_button", "enable_turbo_button"};
-    static std::set<std::string> doubleparams = {"scale_linear.x", "scale_linear.y", "scale_linear.z",
-                                                 "scale_linear_turbo.x", "scale_linear_turbo.y", "scale_linear_turbo.z",
-                                                 "scale_angular.yaw", "scale_angular.pitch", "scale_angular.roll",
-                                                 "scale_angular_turbo.yaw", "scale_angular_turbo.pitch", "scale_angular_turbo.roll"};
-    static std::set<std::string> boolparams = {"require_enable_button"};
+    static std::set<std::string> intparams = {
+      "axis.linear",
+      "axis.steering_angle",
+      "axis.steering_angle_fine",
+      "axis.steering_angle_velocity",
+      "enable_button",
+      "turbo_button",
+    };
+    static std::set<std::string> doubleparams = {
+      "scale.linear", "scale_turbo.linear", "offset.linear",
+      "scale.steering_angle", "scale_turbo.steering_angle", "offset.steering_angle",
+      "scale.steering_angle_fine", "scale_turbo.steering_angle_fine", "offset.steering_angle_fine",
+      "scale.steering_angle_velocity", "scale_turbo.steering_angle_velocity", "offset.steering_angle_velocity"
+
+    };
+    static std::set<std::string> boolparams = {
+      "require_enable_button"
+    };
     auto result = rcl_interfaces::msg::SetParametersResult();
     result.successful = true;
 
@@ -213,89 +202,45 @@ TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleo
     // Loop to assign changed parameters to the member variables
     for (const auto & parameter : parameters)
     {
-      if (parameter.get_name() == "require_enable_button")
+      const auto name = parameter.get_name();
+      RCLCPP_INFO(this->get_logger(), "parsing parameter '%s'", name
+      );
+
+      if (name == "require_enable_button")
       {
         this->pimpl_->require_enable_button = parameter.get_value<rclcpp::PARAMETER_BOOL>();
       }
-      if (parameter.get_name() == "enable_button")
+      if (name == "enable_button")
       {
         this->pimpl_->enable_button = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
       }
-      else if (parameter.get_name() == "enable_turbo_button")
+      else if (name == "enable_turbo_button")
       {
         this->pimpl_->enable_turbo_button = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
       }
-      else if (parameter.get_name() == "axis_linear.x")
+      else if (name.rfind("axis.", 0) != std::string::npos)
       {
-        this->pimpl_->axis_linear_map["x"] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
+        const auto which = name.substr(std::string("axis.").length());
+        this->pimpl_->axis_map[which] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
       }
-      else if (parameter.get_name() == "axis_linear.y")
+      else if (name.rfind("scale.", 0) != std::string::npos)
       {
-        this->pimpl_->axis_linear_map["y"] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
+        auto which = name.substr(std::string("scale.").length());
+        this->pimpl_->scale_map["normal"][which] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
       }
-      else if (parameter.get_name() == "axis_linear.z")
+      else if (name.rfind("scale_turbo.", 0) != std::string::npos)
       {
-        this->pimpl_->axis_linear_map["z"] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
+        auto which = name.substr(std::string("scale_turbo.").length());
+        this->pimpl_->scale_map["turbo"][which] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
       }
-      else if (parameter.get_name() == "axis_angular.yaw")
+      else if (name.rfind("offset.", 0) != std::string::npos)
       {
-        this->pimpl_->axis_angular_map["yaw"] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
+        const auto which = name.substr(std::string("offset.").length());
+        this->pimpl_->offset_map[which] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
       }
-      else if (parameter.get_name() == "axis_angular.pitch")
+      else
       {
-        this->pimpl_->axis_angular_map["pitch"] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
-      }
-      else if (parameter.get_name() == "axis_angular.roll")
-      {
-        this->pimpl_->axis_angular_map["roll"] = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
-      }
-      else if (parameter.get_name() == "scale_linear_turbo.x")
-      {
-        this->pimpl_->scale_linear_map["turbo"]["x"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_linear_turbo.y")
-      {
-        this->pimpl_->scale_linear_map["turbo"]["y"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_linear_turbo.z")
-      {
-        this->pimpl_->scale_linear_map["turbo"]["z"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_linear.x")
-      {
-        this->pimpl_->scale_linear_map["normal"]["x"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_linear.y")
-      {
-        this->pimpl_->scale_linear_map["normal"]["y"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_linear.z")
-      {
-        this->pimpl_->scale_linear_map["normal"]["z"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_angular_turbo.yaw")
-      {
-        this->pimpl_->scale_angular_map["turbo"]["yaw"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_angular_turbo.pitch")
-      {
-        this->pimpl_->scale_angular_map["turbo"]["pitch"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_angular_turbo.roll")
-      {
-        this->pimpl_->scale_angular_map["turbo"]["roll"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_angular.yaw")
-      {
-        this->pimpl_->scale_angular_map["normal"]["yaw"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_angular.pitch")
-      {
-        this->pimpl_->scale_angular_map["normal"]["pitch"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
-      }
-      else if (parameter.get_name() == "scale_angular.roll")
-      {
-        this->pimpl_->scale_angular_map["normal"]["roll"] = parameter.get_value<rclcpp::PARAMETER_DOUBLE>();
+        RCLCPP_WARN(this->get_logger(), "Parameter '%s' is not required and thus is ignored", name);
       }
     }
     return result;
@@ -329,12 +274,13 @@ void TeleopAckerJoy::Impl::sendCmdVelMsg(const sensor_msgs::msg::Joy::SharedPtr 
   // Initializes with zeros by default.
   auto cmd_vel_msg = std::make_unique<ackermann_msgs::msg::AckermannDriveStamped>();
 
-  cmd_vel_msg->drive.speed =
-    getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "x");
-  cmd_vel_msg->drive.steering_angle =
-    getVal(joy_msg, axis_angular_map, scale_angular_map[which_map], "yaw");
-  cmd_vel_msg->drive.steering_angle_velocity =
-    getVal(joy_msg, axis_linear_map, scale_linear_map[which_map], "z");
+  cmd_vel_msg->drive.speed = offset_map["linear"] +
+    getVal(joy_msg, axis_map, scale_map[which_map], "linear");
+  cmd_vel_msg->drive.steering_angle = offset_map["steering_angle"] +
+    getVal(joy_msg, axis_map, scale_map[which_map], "steering_angle") +
+    getVal(joy_msg, axis_map, scale_map[which_map], "steering_angle_fine");
+  cmd_vel_msg->drive.steering_angle_velocity = offset_map["steering_angle_velocity"] +
+    std::abs(getVal(joy_msg, axis_map, scale_map[which_map], "steering_angle_velocity"));
 
   cmd_vel_pub->publish(std::move(cmd_vel_msg));
   sent_disable_msg = false;
