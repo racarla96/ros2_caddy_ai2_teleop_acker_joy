@@ -59,12 +59,16 @@ struct TeleopAckerJoy::Impl
   bool require_enable_button;
   int64_t enable_button;
   int64_t enable_turbo_button;
+  std::chrono::milliseconds failsafe_delay_ms;
 
   std::map<std::string, int64_t> axis_map;
   std::map<std::string, std::map<std::string, double>> scale_map;
   std::map<std::string, double> offset_map;
 
   bool sent_disable_msg;
+  rclcpp::Time last_non_zero_cmd{0};
+  rclcpp::Clock clock;
+
 };
 
 /**
@@ -84,10 +88,9 @@ TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleo
     std::bind(&TeleopAckerJoy::Impl::joyCallback, this->pimpl_, std::placeholders::_1));
 
   pimpl_->require_enable_button = this->declare_parameter("require_enable_button", true);
-
   pimpl_->enable_button = this->declare_parameter("enable_button", 5);
-
   pimpl_->enable_turbo_button = this->declare_parameter("enable_turbo_button", -1);
+  pimpl_->failsafe_delay_ms = std::chrono::milliseconds{this->declare_parameter("failsafe_delay_ms", 0)};
 
   std::map<std::string, int64_t> default_map{
     {"linear", 5L},
@@ -153,16 +156,16 @@ TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleo
       "axis.steering_angle_velocity",
       "enable_button",
       "turbo_button",
+      "failsafe_delay_ms",
     };
     static std::set<std::string> doubleparams = {
       "scale.linear", "scale_turbo.linear", "offset.linear",
       "scale.steering_angle", "scale_turbo.steering_angle", "offset.steering_angle",
       "scale.steering_angle_fine", "scale_turbo.steering_angle_fine", "offset.steering_angle_fine",
-      "scale.steering_angle_velocity", "scale_turbo.steering_angle_velocity", "offset.steering_angle_velocity"
-
+      "scale.steering_angle_velocity", "scale_turbo.steering_angle_velocity", "offset.steering_angle_velocity",
     };
     static std::set<std::string> boolparams = {
-      "require_enable_button"
+      "require_enable_button",
     };
     auto result = rcl_interfaces::msg::SetParametersResult();
     result.successful = true;
@@ -213,7 +216,11 @@ TeleopAckerJoy::TeleopAckerJoy(const rclcpp::NodeOptions& options) : Node("teleo
       {
         this->pimpl_->require_enable_button = parameter.get_value<rclcpp::PARAMETER_BOOL>();
       }
-      if (name == "enable_button")
+      else if (name == "failsafe_delay_ms")
+      {
+        this->pimpl_->failsafe_delay_ms = std::chrono::milliseconds{parameter.get_value<rclcpp::PARAMETER_INTEGER>()};
+      }
+      else if (name == "enable_button")
       {
         this->pimpl_->enable_button = parameter.get_value<rclcpp::PARAMETER_INTEGER>();
       }
@@ -296,23 +303,29 @@ void TeleopAckerJoy::Impl::joyCallback(const sensor_msgs::msg::Joy::SharedPtr jo
       joy_msg->buttons[enable_turbo_button])
   {
     sendCmdVelMsg(joy_msg, "turbo");
+    last_non_zero_cmd = clock.now();
   }
   else if (!require_enable_button ||
-	   (static_cast<int>(joy_msg->buttons.size()) > enable_button &&
+           (static_cast<int>(joy_msg->buttons.size()) > enable_button &&
            joy_msg->buttons[enable_button]))
   {
     sendCmdVelMsg(joy_msg, "normal");
+    last_non_zero_cmd = clock.now();
   }
   else
   {
-    // When enable button is released, immediately send a single no-motion command
+    // When enable button is released, send in some time a single no-motion command
     // in order to stop the robot.
     if (!sent_disable_msg)
     {
-      // Initializes with zeros by default.
-      auto cmd_vel_msg = std::make_unique<ackermann_msgs::msg::AckermannDriveStamped>();
-      cmd_vel_pub->publish(std::move(cmd_vel_msg));
-      sent_disable_msg = true;
+      const bool is_zero_command_due = clock.now() > (last_non_zero_cmd + failsafe_delay_ms);
+      if (is_zero_command_due)
+      {
+        // Initializes with zeros by default.
+        auto cmd_vel_msg = std::make_unique<ackermann_msgs::msg::AckermannDriveStamped>();
+        cmd_vel_pub->publish(std::move(cmd_vel_msg));
+        sent_disable_msg = true;
+      }
     }
   }
 }
